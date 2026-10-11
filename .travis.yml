@@ -1,9 +1,32 @@
 sudo: false
 arch:
+ # ppc64le is not provisioned for this fork: its jobs stay `queued` and never
+ # start, so the build never reaches a verdict
  - amd64
- - ppc64le
 language: node_js
 node_js:
+  # Node 24 is the runtime that packed the published tarball
+  - "24"
   - "10"
   - "12"
   - "14"
+before_install:
+  # the committed package-lock.json is lockfileVersion 3, which the npm bundled
+  # with Node 10/12/14 cannot install from
+  - rm -f package-lock.json
+script:
+  # "npm test" is `tape test/*.js`. Node >= 18 legs run it in full. Legacy legs
+  # hand tape every test file EXCEPT the four that cannot load on Node < 16:
+  #   redos.js                - ES module on the built-in node:test runner (Node >= 18)
+  #   cve.js                  - numeric separator literal + global `performance` (Node >= 16)
+  #   ghsa-rgw5-rvv9-x895.js  - numeric separator literal + global `performance` (Node >= 16)
+  #   unbound-recursion.js    - global `performance` (Node >= 16)
+  # Any test file added later (e.g. CVE regression tests) runs on every leg.
+  - |
+    if [ "$(node -p 'process.versions.node.split(".")[0]')" -ge 18 ]; then
+      npm test
+    else
+      LEGACY_TESTS=$(ls test/*.js | grep -v -E '^test/(redos|cve|ghsa-rgw5-rvv9-x895|unbound-recursion)\.js$')
+      echo "legacy Node test files: $LEGACY_TESTS"
+      node node_modules/.bin/tape $LEGACY_TESTS
+    fi
